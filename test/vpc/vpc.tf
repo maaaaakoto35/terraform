@@ -16,7 +16,7 @@ provider "aws" {
 # output セクションの追記
 # subnet の id を value にセットしている
 output "public_subnet_id" {
-    value = aws_subnet.public_subnet.id
+    value = aws_subnet.public_subnet.vpc_id
 }
 
 terraform {
