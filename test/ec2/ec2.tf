@@ -14,7 +14,7 @@ provider "aws" {
 data "terraform_remote_state" "vpc" {
     backend = "s3"
 
-    config {
+    config = {
         bucket = "unifood-dev"
         key = "test/vpc/terraform.tfstate"
         region = "ap-northeast-1"
