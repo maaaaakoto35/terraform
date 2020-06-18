@@ -13,6 +13,7 @@ provider "aws" {
 # remote_state を設定し vpc という名前で参照できるようにしています
 data "terraform_remote_state" "vpc" {
     backend = "s3"
+
     config {
         bucket = "unifood-dev"
         key = "test/vpc/terraform.tfstate"
