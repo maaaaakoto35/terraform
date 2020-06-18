@@ -3,7 +3,7 @@ resource "aws_instance" "sandbox" {
     ami = "ami-785c491f"
     instance_type = "t2.micro"
     # remote_state を指定している
-    subnet_id = data.terraform_remote_state.vpc.public_subnet_id
+    subnet_id = data.terraform_remote_state.vpc.public_subnet_id_value
 }
 
 provider "aws" {
