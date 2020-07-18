@@ -131,7 +131,7 @@ resource "aws_internet_gateway" "example" {
 resource "aws_subnet" "public_0" {
     vpc_id                      = aws_vpc.example.id        # 自動振り分け(多分)
     cidr_block                  = "10.0.1.0/24"
-    map_public_ip_on_launch   = true
+    map_public_ip_on_launch     = true
     availability_zone           = "ap-northeast-1a"         # Tokyo
 }
 
@@ -343,7 +343,156 @@ resource "aws_lb_listener" "http" {
     }
 }
 
+# ホストゾーンのデータソースの定義
+data "aws_route53_zone" "example" {
+    name = "ksu-unifood.com"        # これだけ本番用
+}
 
+# ALBのDNSレコードの定義
+resource "aws_route53_record" "example" {
+    zone_id = data.aws_route53_zone.example.zone_id
+    name    = data.aws_route53_zone.example.name
+    type    = "A"
+
+    alias {
+        name                    = aws_lb.example.dns_name
+        zone_id                 = aws_lb.example.zone_id
+        evaluate_target_health  = true
+    }
+}
+
+output "domain_name" {
+    value = aws_route53_record.example.name
+}
+
+# ターゲットグループの定義
+resource "aws_lb_target_group" "example" {
+    name                    = "example"
+    target_type             = "ip"
+    vpc_id                  = aws_vpc.example.id
+    port                    = 80
+    protocol                = "HTTP"
+    deregistration_delay    = 300
+
+    health_check {
+        path                = "/"
+        healthy_threshold   = 5
+        unhealthy_threshold = 2
+        timeout             = 5
+        interval            = 30
+        matcher             = 200
+        port                = "traffic-port"
+        protocol            = "HTTP"
+    }
+
+    depends_on = [aws_lb.example]
+}
+
+# リスナールールの定義
+resource "aws_lb_listener_rule" "example" {
+    listener_arn = aws_lb_listener.http.arn
+    priority     = 100
+
+    action {
+        type             = "forward"
+        target_group_arn = aws_lb_target_group.example.arn
+    }
+
+    condition {
+        field  = "path-pattern"
+        values = ["/*"]
+    }
+}
+
+
+
+############################################     ecs     ############################################
+# 2020/07/18
+
+# ECSクラスタの定義
+resource "aws_ecs_cluster" "example" {
+    name = "example"
+}
+
+# タスク定義
+resource "aws_ecs_task_definition" "example" {
+    family                      = "example"
+    cpu                         = "256"
+    memory                      = "512"
+    network_mode                = "awsvpc"
+    requires_compatibilities    = ["FARGATE"]
+    container_definitions       = file("./container_definition.json")
+    execution_role_arn          = module.ecs_task_execution_role.iam_role_arn
+}
+
+# ECSサービスの定義
+resource "aws_ecs_service" "example" {
+    name                                = "example"
+    cluster                             = aws_ecs_cluster.example.arn
+    task_definition                     = aws_ecs_task_definition.example.arn
+    desired_count                       = 2
+    launch_type                         = "FARGATE"
+    platform_version                    = "1.3.0"
+    health_check_grace_period_seconds   = 60
+
+    network_configuration {
+        assign_public_ip = false
+        security_groups  = [module.nginx_sg.security_group_id]
+
+        subnets = [
+            aws_subnet.private_0.id,
+            aws_subnet.private_1.id,
+        ]
+    }
+
+    load_balancer {
+        target_group_arn = aws_lb_target_group.example.arn
+        container_name   = "example"
+        container_port   = 80
+    }
+
+    lifecycle {
+        ignore_changes = [task_definition]
+    }
+}
+
+# ECS用セキュリティグループ
+module "nginx_sg" {
+    source      = "./security_group"
+    name        = "nginx-sg"
+    vpc_id      = aws_vpc.example.id
+    port        = 80
+    cidr_blocks = [aws_vpc.example.cidr_block]
+}
+
+# CloudWatch Logsの定義
+resource "aws_cloudwatch_log_group" "for_ecs" {
+    name              = "/ecs/example"
+    retention_in_days = 180
+}
+
+# AmazonECSTaskExecutionRolePolicyの参照
+data "aws_iam_policy" "ecs_task_execution_role_policy" {
+    arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# ECSタスク実行IAMロールのポリシードキュメントの定義
+data "aws_iam_policy_document" "ecs_task_execution" {
+    source_json = data.aws_iam_policy.ecs_task_execution_role_policy.policy
+
+    statement {
+        effect      = "Allow"
+        actions     = ["ssm:GetParameters", "kms:Decrypt"]
+        resources   = ["*"]
+    }
+}
+
+module "ecs_task_execution_role" {
+    source = "./iam_role"
+    name = "ecs-task-execution"
+    identifier = "ecs-tasks.amazonaws.com"
+    policy = data.aws_iam_policy_document.ecs_task_execution.json
+}
 
 
 
