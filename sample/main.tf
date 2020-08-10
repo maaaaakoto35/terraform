@@ -399,8 +399,9 @@ resource "aws_lb_listener_rule" "example" {
     }
 
     condition {
-        field  = "path-pattern"
-        values = ["/*"]
+        path_pattern {
+            values = ["*"]
+        }
     }
 }
 
@@ -487,6 +488,7 @@ data "aws_iam_policy_document" "ecs_task_execution" {
     }
 }
 
+# ECSタスク実行IAMロールの定義
 module "ecs_task_execution_role" {
     source = "./iam_role"
     name = "ecs-task-execution"
